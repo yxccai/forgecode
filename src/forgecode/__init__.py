@@ -1,6 +1,6 @@
 """ForgeCode: a small, repository-aware coding agent."""
 
-from .agent import AgentLoop
+from .agent import CodingAgent
 from .schemas import (
     AgentConfig,
     ModelResponse,
@@ -12,7 +12,7 @@ from .schemas import (
 
 __all__ = [
     "AgentConfig",
-    "AgentLoop",
+    "CodingAgent",
     "ModelResponse",
     "RunResult",
     "StopReason",

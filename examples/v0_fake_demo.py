@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from forgecode.agent import AgentLoop
+from forgecode.agent_v0 import AgentLoop
 from forgecode.schemas import ModelResponse, ToolCall
 
 

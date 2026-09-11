@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Protocol, Sequence
+from typing import Any, Protocol, Sequence
 
 from .schemas import Message, ModelResponse, ToolCall
 
@@ -80,3 +80,45 @@ def _parse_arguments(raw_arguments: str | dict) -> dict:
     if not isinstance(parsed, dict):
         raise ValueError("Tool arguments must be a JSON object")
     return parsed
+
+
+class LangChainChatModel(Protocol):
+    """Minimal V1 model surface: bind tools, then invoke messages."""
+
+    def bind_tools(self, tools: Sequence[Any]) -> Any:
+        """Return a runnable model configured with the supplied tools."""
+
+
+def create_langchain_chat_model(
+    model: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+) -> LangChainChatModel:
+    """Create a LangChain ChatOpenAI model from explicit values or environment.
+
+    langchain-openai is imported lazily. This keeps fake-model tests
+    independent from provider packages while still giving the CLI a standard
+    production adapter.
+    """
+
+    try:
+        from langchain_openai import ChatOpenAI
+    except ImportError as exc:  # pragma: no cover - depends on local setup
+        raise RuntimeError(
+            "The LangChain adapter requires 'langchain-openai'. "
+            "Install the project dependencies first."
+        ) from exc
+
+    resolved_key = api_key or os.environ.get("OPENAI_API_KEY")
+    if not resolved_key:
+        raise RuntimeError("OPENAI_API_KEY is not set")
+
+    model_name = model or os.environ.get("FORGECODE_MODEL", "gpt-4o-mini")
+    resolved_base_url = base_url or os.environ.get("OPENAI_BASE_URL")
+    kwargs: dict[str, Any] = {
+        "model": model_name,
+        "api_key": resolved_key,
+    }
+    if resolved_base_url:
+        kwargs["base_url"] = resolved_base_url
+    return ChatOpenAI(**kwargs)

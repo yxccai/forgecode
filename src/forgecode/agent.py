@@ -1,109 +1,128 @@
-"""V0 的 Agent 主循环。
+"""V1 coding agent built on LangChain messages and typed tools.
 
-这是整个项目最值得先读懂的文件。它只做三件事：
-
-1. 把消息和工具 Schema 交给模型；
-2. 执行模型返回的 Tool Call；
-3. 把 Tool Result 放回消息历史，继续下一轮。
-
-提示词在 ``prompt_template.py``，模型调用在 ``model.py``，工具实现
-在 ``tools/``。把这些职责拆开后，可以沿着一个清晰的调用链学习 Agent。
+V0 用自定义字典和 ToolRegistry 表达消息与工具调用；V1 改用
+HumanMessage、SystemMessage、AIMessage、ToolMessage 以及 @tool 生成的
+结构化工具 schema。运行时仍然保留一个显式循环，因此每一步如何发生
+都能直接阅读和调试，不引入 LangGraph 或隐藏的状态机。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
+from typing import Any
 
-from .model import ChatModel
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.tools import BaseTool
+
+from .model import LangChainChatModel
 from .prompt_template import build_system_prompt
-from .schemas import AgentConfig, Message, ModelResponse, RunResult, RunStats, StopReason
-from .tools import ToolRegistry, create_default_registry
+from .schemas import AgentConfig, RunResult, RunStats, StopReason
+from .tools import ToolContext, create_langchain_tools
 
 
 @dataclass
-class AgentLoop:
-    """不依赖 Agent 框架的最小运行时。"""
+class CodingAgent:
+    """执行一次 repository-aware coding 任务的 V1 Agent。"""
 
-    model: ChatModel
-    registry: ToolRegistry
+    model: LangChainChatModel
+    tools: list[BaseTool]
     config: AgentConfig = field(default_factory=AgentConfig)
     system_prompt: str = ""
+    _tool_map: dict[str, BaseTool] = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        # 用工具名建立索引，让模型返回的 tool_call 可以 O(1) 找到实现。
+        self._tool_map = {tool.name: tool for tool in self.tools}
 
     @classmethod
     def for_workspace(
         cls,
-        model: ChatModel,
-        workspace_root: Path,
+        model: LangChainChatModel,
+        workspace_root: str,
         config: AgentConfig | None = None,
-    ) -> "AgentLoop":
-        """为一个工作区组装 Agent。
+    ) -> "CodingAgent":
+        """为一个工作区创建完整的 V1 工具集合。"""
 
-        这是应用层的组装入口：创建工具集合，并生成本次运行的系统提示词。
-        ``run`` 本身不关心工具是如何创建的。
-        """
-
-        registry = create_default_registry(workspace_root)
+        context = ToolContext(workspace_root)
+        tools = create_langchain_tools(context)
         return cls(
             model=model,
-            registry=registry,
+            tools=tools,
             config=config or AgentConfig(),
-            system_prompt=build_system_prompt(registry.context.workspace_root),
+            system_prompt=build_system_prompt(context.workspace_root),
         )
 
     def run(self, task: str) -> RunResult:
-        """执行一个任务，直到模型给出最终回答或触发停止条件。"""
+        """运行显式的 model -> tools -> observation 循环。"""
 
         if not task.strip():
             raise ValueError("task must not be empty")
 
-        # messages 是 Agent 的短期记忆。每次模型调用都能看到完整对话历史，
-        # 包括之前的 assistant Tool Call 和 tool Observation。
-        messages: list[Message] = [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": task},
+        messages: list[Any] = [
+            SystemMessage(content=self.system_prompt),
+            HumanMessage(content=task),
         ]
         stats = RunStats()
 
+        # bind_tools 只做一次：它把工具 JSON schema 绑定到模型实例。
+        model_with_tools = self.model.bind_tools(self.tools)
+
         for step in range(1, self.config.max_steps + 1):
             stats.steps = step
+
             try:
-                # 模型负责“决定下一步”，但不直接执行本地操作。
-                response = self.model.complete(messages, self.registry.definitions())
+                # 每一轮把完整消息轨迹交给模型，模型返回一个 AIMessage。
+                ai_message = model_with_tools.invoke(messages)
             except Exception as exc:
-                stats.model_calls += 1
                 return RunResult(
                     final_text="",
                     stop_reason=StopReason.MODEL_ERROR,
                     messages=messages,
                     stats=stats,
-                    error=f"{type(exc).__name__}: {exc}",
+                    error=str(exc),
                 )
 
             stats.model_calls += 1
-            # 先把 assistant 的响应放入历史。若它包含 Tool Call，下一轮
-            # 的 tool message 就会和这条 assistant message 配对。
-            messages.append(response.raw_message or _assistant_message(response))
+            messages.append(ai_message)
 
-            if response.is_final:
-                # 没有 Tool Call 表示模型认为任务已经可以回答了。
+            # LangChain 已经把工具调用解析成 AIMessage.tool_calls。
+            tool_calls = list(getattr(ai_message, "tool_calls", []) or [])
+            if not tool_calls:
                 return RunResult(
-                    final_text=response.content or "",
+                    final_text=_content_to_text(getattr(ai_message, "content", "")),
                     stop_reason=StopReason.COMPLETED,
                     messages=messages,
                     stats=stats,
                 )
 
-            for call in response.tool_calls:
+            # 一个 AIMessage 可能包含多个并行 tool_call；逐个执行并反馈结果。
+            for raw_call in tool_calls:
                 stats.tool_calls += 1
-                # Runtime 根据工具名分发调用；工具失败也会转成 Observation，
-                # 这样模型有机会修正参数或选择另一条路径。
-                result = self.registry.execute(call)
-                if not result.ok:
-                    stats.tool_errors += 1
-                messages.append(result.as_message())
+                tool_name = str(raw_call.get("name", ""))
+                tool_call_id = str(raw_call.get("id", "")) or f"call-{stats.tool_calls}"
+                arguments = raw_call.get("args", {}) or {}
+                tool = self._tool_map.get(tool_name)
 
-        # 不能无限循环。达到预算时返回明确的停止原因，而不是假装完成。
+                if tool is None:
+                    stats.tool_errors += 1
+                    observation = _error_observation(f"Unknown tool: {tool_name}")
+                else:
+                    try:
+                        observation = _stringify(tool.invoke(arguments))
+                    except Exception as exc:
+                        # 工具失败也要变成 observation，模型才有机会自行修正。
+                        stats.tool_errors += 1
+                        observation = _error_observation(str(exc))
+
+                # tool_call_id 是模型调用与工具结果之间的关联键，不能省略。
+                messages.append(
+                    ToolMessage(
+                        content=observation,
+                        tool_call_id=tool_call_id,
+                        name=tool_name or None,
+                    )
+                )
+
         return RunResult(
             final_text="",
             stop_reason=StopReason.STEP_LIMIT,
@@ -113,28 +132,33 @@ class AgentLoop:
         )
 
 
-def _assistant_message(response: ModelResponse) -> Message:
-    """为 Fake Model 等没有提供原始消息的实现补一个 assistant message。"""
+def _stringify(value: Any) -> str:
+    """将工具返回值统一成文本，便于放进 ToolMessage。"""
 
-    message: Message = {"role": "assistant", "content": response.content}
-    if response.tool_calls:
-        message["tool_calls"] = [
-            {
-                "id": call.id,
-                "type": "function",
-                "function": {
-                    "name": call.name,
-                    "arguments": _arguments_json(call.arguments),
-                },
-            }
-            for call in response.tool_calls
-        ]
-    return message
+    if isinstance(value, str):
+        return value
+    return str(value)
 
 
-def _arguments_json(arguments: dict) -> str:
-    """把 Tool Call 参数编码成 OpenAI message 使用的 JSON 字符串。"""
+def _error_observation(message: str) -> str:
+    """返回结构稳定的错误 observation，让模型知道这次调用失败。"""
 
-    import json
+    return '{"ok": false, "error": ' + repr(message) + "}"
 
-    return json.dumps(arguments, ensure_ascii=False)
+
+def _content_to_text(content: Any) -> str:
+    """兼容 LangChain 内容可能是字符串或多模态 block 列表。"""
+
+    if isinstance(content, str):
+        return content
+    if content is None:
+        return ""
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict):
+                parts.append(str(block.get("text", block)))
+            else:
+                parts.append(str(block))
+        return "".join(parts)
+    return str(content)

@@ -94,6 +94,6 @@ class RunResult:
 
     final_text: str
     stop_reason: StopReason
-    messages: list[Message]
+    messages: list[Any]
     stats: RunStats
     error: str | None = None

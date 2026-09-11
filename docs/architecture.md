@@ -1,7 +1,8 @@
-# ForgeCode V0 代码结构
+# ForgeCode V0 代码结构（历史版本）
 
 V0 按照“应用入口 → Agent 主循环 → 模型 / 提示词 / 工具”的方向组织代码。
-阅读时从 `agent.py` 开始，不需要先理解整个项目。
+V1 的新调用链见 [architecture-v1.md](architecture-v1.md)。
+阅读时从 `agent_v0.py` 开始，不需要先理解整个项目。
 
 ```text
 用户命令
@@ -10,7 +11,7 @@ V0 按照“应用入口 → Agent 主循环 → 模型 / 提示词 / 工具”�
 cli.py                         只负责解析参数、创建 Agent、打印结果
    │
    ▼
-agent.py                       只负责 Agent Loop
+agent_v0.py                       只负责 Agent Loop
    │        ├── prompt_template.py   生成 system message
    │        ├── model.py             调用模型并解析响应
    │        └── tools/
@@ -43,7 +44,7 @@ AgentLoop.run(task)
 
 ## 为什么这样分层
 
-### `agent.py`：控制流程
+### `agent_v0.py`：控制流程
 
 它不实现文件读取，也不关心 OpenAI SDK 的具体对象。它只表达 Agent 的核心算法：
 
@@ -69,4 +70,4 @@ Prompt 决定模型如何理解自己的角色和工具，但 Prompt 本身不�
 
 ## 与 VideoCode 的关系
 
-VideoCode 的相关示例把 Agent 主循环集中在 `agent.py`，把提示词模板放在 `prompt_template.py`，工具作为普通函数提供。这种结构非常适合入门学习。ForgeCode 保留这个可读性，同时把模型适配器、数据结构和工具实现拆出，避免一个 `agent.py` 同时承担所有职责。
+VideoCode 的相关示例把 Agent 主循环集中在 `agent_v0.py`，把提示词模板放在 `prompt_template.py`，工具作为普通函数提供。这种结构非常适合入门学习。ForgeCode 保留这个可读性，同时把模型适配器、数据结构和工具实现拆出，避免一个 `agent_v0.py` 同时承担所有职责。
