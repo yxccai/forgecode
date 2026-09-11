@@ -39,6 +39,7 @@ V1 调用链见 [docs/architecture-v1.md](docs/architecture-v1.md)，版本学�
 - 在工作区执行 argv 命令：run_command
 - 应用 unified diff：apply_patch
 - 查看 staged 和 unstaged 代码变化：git_diff
+- 交互式多轮 CLI 与会话历史
 - 工具错误反馈和输出截断
 - 最大步骤数限制
 - LangChain AIMessage / ToolMessage 消息轨迹
@@ -76,6 +77,24 @@ forge "请先浏览仓库，然后说明项目的入口文件和主要模块" --
 forge "把 README 的标题改得更清晰，并运行相关检查" --max-steps 8
 ~~~
 
+如果不想每次重新输入命令，可以启动连续对话模式：
+
+~~~bash
+forge
+# 或者显式指定
+forge --interactive
+~~~
+
+启动后可以连续输入多个任务：
+
+~~~text
+forge> 请先看看认证相关代码
+forge> 刚才提到的入口文件在哪里？
+forge> :clear
+forge> :quit
+~~~
+
+交互模式会保留当前会话的消息历史；`:clear`/`:reset` 清空历史，`:quit`/`:q` 退出。
 ## 测试
 
 ~~~bash

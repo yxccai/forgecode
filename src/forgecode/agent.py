@@ -52,16 +52,21 @@ class CodingAgent:
             system_prompt=build_system_prompt(context.workspace_root),
         )
 
-    def run(self, task: str) -> RunResult:
-        """运行显式的 model -> tools -> observation 循环。"""
+    def run(self, task: str, *, history: list[Any] | None = None) -> RunResult:
+        """运行一次任务；传入 history 时，继续之前的多轮对话。"""
 
         if not task.strip():
             raise ValueError("task must not be empty")
 
-        messages: list[Any] = [
-            SystemMessage(content=self.system_prompt),
-            HumanMessage(content=task),
-        ]
+        if history is None:
+            messages: list[Any] = [
+                SystemMessage(content=self.system_prompt),
+                HumanMessage(content=task),
+            ]
+        else:
+            # 复制历史，避免本次运行把调用方保存的列表原地改掉。
+            messages = list(history)
+            messages.append(HumanMessage(content=task))
         stats = RunStats()
 
         # bind_tools 只做一次：它把工具 JSON schema 绑定到模型实例。

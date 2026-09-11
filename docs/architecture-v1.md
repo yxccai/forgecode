@@ -19,7 +19,7 @@ CLI
        |      +-- @tool apply_patch
        |      +-- @tool git_diff
        |
-       +-- CodingAgent.run(task)
+       +-- CodingAgent.run(task, history?)
               |
               +-- SystemMessage + HumanMessage
               +-- model.bind_tools(tools)
@@ -65,5 +65,7 @@ for step in 1..max_steps:
 
 return step_limit
 ~~~
+
+交互模式由 CLI 保存 `RunResult.messages`，下一轮通过 `run(task, history=...)` 继续；`:clear` 会丢弃这份历史。
 
 V1 刻意不把这段逻辑隐藏在 AgentExecutor 或 LangGraph 中。学习阶段先掌握原始消息与工具协议，下一版再讨论状态图、重试节点、人工审批和持久化。

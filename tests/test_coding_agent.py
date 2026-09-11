@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from forgecode.agent import CodingAgent
 from forgecode.schemas import AgentConfig, StopReason
@@ -77,6 +77,26 @@ def test_agent_executes_tool_and_returns_final_message(tmp_path: Path) -> None:
         "apply_patch",
         "git_diff",
     }
+
+
+def test_agent_continues_existing_history(tmp_path: Path) -> None:
+    model = ScriptedModel(
+        [
+            final("first answer"),
+            final("second answer"),
+        ]
+    )
+    agent = CodingAgent.for_workspace(model, tmp_path)
+
+    first = agent.run("first question")
+    second = agent.run("follow-up question", history=first.messages)
+
+    assert first.final_text == "first answer"
+    assert second.final_text == "second answer"
+    assert len(second.messages) == 5
+    assert isinstance(second.messages[-2], HumanMessage)
+    assert second.messages[-2].content == "follow-up question"
+    assert second.messages[2].content == "first answer"
 
 
 def test_tool_error_is_returned_to_model_as_observation(tmp_path: Path) -> None:
