@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 
 from forgecode.agent import CodingAgent
 from forgecode.schemas import AgentConfig, StopReason
@@ -17,6 +17,7 @@ class ScriptedModel:
         self.bind_calls = 0
         self.bound_tools: list[Any] = []
         self.invoke_messages: list[list[Any]] = []
+        self.stream_calls = 0
 
     def bind_tools(self, tools: list[Any]) -> "ScriptedModel":
         self.bind_calls += 1
@@ -28,6 +29,18 @@ class ScriptedModel:
         if not self.responses:
             raise AssertionError("ScriptedModel ran out of responses")
         return self.responses.pop(0)
+
+    def stream(self, messages: list[Any]) -> Any:
+        self.stream_calls += 1
+        self.invoke_messages.append(list(messages))
+        if not self.responses:
+            raise AssertionError("ScriptedModel ran out of responses")
+
+        response = self.responses.pop(0)
+        text = str(response.content or "")
+        midpoint = max(1, len(text) // 2)
+        yield AIMessageChunk(content=text[:midpoint])
+        yield AIMessageChunk(content=text[midpoint:])
 
 
 def tool_call(call_id: str, name: str, args: dict[str, Any]) -> AIMessage:
@@ -97,6 +110,21 @@ def test_agent_continues_existing_history(tmp_path: Path) -> None:
     assert isinstance(second.messages[-2], HumanMessage)
     assert second.messages[-2].content == "follow-up question"
     assert second.messages[2].content == "first answer"
+
+
+def test_agent_streams_text_chunks(tmp_path: Path) -> None:
+    model = ScriptedModel([final("streamed answer")])
+    chunks: list[str] = []
+
+    result = CodingAgent.for_workspace(model, tmp_path).run(
+        "Stream the answer",
+        on_text=chunks.append,
+    )
+
+    assert result.stop_reason is StopReason.COMPLETED
+    assert result.final_text == "streamed answer"
+    assert "".join(chunks) == "streamed answer"
+    assert model.stream_calls == 1
 
 
 def test_tool_error_is_returned_to_model_as_observation(tmp_path: Path) -> None:

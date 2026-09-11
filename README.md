@@ -95,6 +95,13 @@ forge> :quit
 ~~~
 
 交互模式会保留当前会话的消息历史；`:clear`/`:reset` 清空历史，`:quit`/`:q` 退出。
+
+回答会用 Rich 渲染 Markdown，并默认通过 LangChain `stream()` 增量更新。
+如果第三方服务不支持流式接口，可以关闭流式输出：
+
+~~~bash
+forge --no-stream
+~~~
 ## 测试
 
 ~~~bash

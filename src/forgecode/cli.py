@@ -8,10 +8,15 @@ import os
 from pathlib import Path
 from typing import Any
 
+from rich.console import Console
+from rich.live import Live
+from rich.markdown import Markdown
+
 from .agent import CodingAgent
 from .model import create_langchain_chat_model
 from .schemas import AgentConfig, RunResult
 
+_CONSOLE = Console()
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="ForgeCode V1 repository-aware coding agent")
@@ -51,6 +56,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--max-steps", type=int, default=12)
     parser.add_argument("--show-trace", action="store_true", help="Print messages and tool results")
+    parser.add_argument(
+        "--no-stream",
+        action="store_true",
+        help="Disable streaming output and wait for the complete model response",
+    )
     return parser
 
 
@@ -75,13 +85,16 @@ def main(argv: list[str] | None = None) -> int:
         return _interactive_loop(
             agent,
             show_trace=args.show_trace,
+            stream=not args.no_stream,
             initial_task=args.task,
         )
 
-    result = _execute_task(agent, args.task, history=None)
+    result, streamed = _execute_task(
+        agent, args.task, history=None, stream=not args.no_stream
+    )
     if result is None:
         return 2
-    return _print_result(result, show_trace=args.show_trace)
+    return _print_result(result, show_trace=args.show_trace, streamed=streamed)
 
 
 def _interactive_loop(
@@ -89,6 +102,7 @@ def _interactive_loop(
     *,
     show_trace: bool,
     initial_task: str | None = None,
+    stream: bool,
 ) -> int:
     """连续读取任务，并把上一次消息历史交给下一次运行。"""
 
@@ -96,10 +110,10 @@ def _interactive_loop(
     print("ForgeCode interactive mode. Type :help for commands.")
 
     if initial_task:
-        result = _execute_task(agent, initial_task, history=None)
+        result, streamed = _execute_task(agent, initial_task, history=None, stream=stream)
         if result is not None:
             history = result.messages
-            _print_result(result, show_trace=show_trace)
+            _print_result(result, show_trace=show_trace, streamed=streamed)
 
     while True:
         try:
@@ -127,10 +141,10 @@ def _interactive_loop(
             print("Conversation history cleared.")
             continue
 
-        result = _execute_task(agent, task, history=history)
+        result, streamed = _execute_task(agent, task, history=history, stream=stream)
         if result is not None:
             history = result.messages
-            _print_result(result, show_trace=show_trace)
+            _print_result(result, show_trace=show_trace, streamed=streamed)
 
     return 0
 
@@ -150,16 +164,23 @@ def _execute_task(
     task: str,
     *,
     history: list[Any] | None,
-) -> RunResult | None:
+    stream: bool,
+) -> tuple[RunResult | None, bool]:
     """Run one task and turn user-facing setup errors into a readable message."""
     try:
-        return agent.run(task, history=history)
+        if not stream:
+            return agent.run(task, history=history), False
+
+        streamer = _MarkdownStreamer()
+        with streamer:
+            result = agent.run(task, history=history, on_text=streamer.write)
+        return result, streamer.rendered
     except (RuntimeError, ValueError) as exc:
         print(f"ForgeCode error: {exc}")
-        return None
+        return None, False
 
 
-def _print_result(result: RunResult, *, show_trace: bool) -> int:
+def _print_result(result: RunResult, *, show_trace: bool, streamed: bool = False) -> int:
     """Print one result and return the process status used by one-shot mode."""
 
     if show_trace:
@@ -176,7 +197,8 @@ def _print_result(result: RunResult, *, show_trace: bool) -> int:
         print("--- end trace ---")
 
     if result.stop_reason.value == "completed":
-        print(result.final_text)
+        if not streamed:
+            _print_markdown(result.final_text)
         print(
             f"\n[steps={result.stats.steps} model_calls={result.stats.model_calls} "
             f"tool_calls={result.stats.tool_calls} tool_errors={result.stats.tool_errors}]"
@@ -196,3 +218,46 @@ def _message_to_dict(message: object) -> object:
     if callable(model_dump):
         return model_dump(exclude_none=True)
     return {"type": type(message).__name__, "content": str(message)}
+
+
+def _print_markdown(text: str) -> None:
+    """Render a completed assistant answer as Markdown in the terminal."""
+
+    if text.strip():
+        _CONSOLE.print(Markdown(text))
+    else:
+        _CONSOLE.print()
+
+
+class _MarkdownStreamer:
+    """Incrementally render assistant text while a LangChain stream is open."""
+
+    def __init__(self) -> None:
+        self._text = ""
+        self._live: Live | None = None
+        self.rendered = False
+
+    def __enter__(self) -> "_MarkdownStreamer":
+        return self
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
+        if self._live is not None:
+            self._live.stop()
+        if self.rendered:
+            _CONSOLE.print()
+
+    def write(self, text: str) -> None:
+        """Receive one text chunk from CodingAgent and refresh the live Markdown."""
+
+        if not text:
+            return
+        if self._live is None:
+            self._live = Live(
+                Markdown(""),
+                console=_CONSOLE,
+                refresh_per_second=12,
+            )
+            self._live.start()
+        self._text += text
+        self.rendered = True
+        self._live.update(Markdown(self._text), refresh=True)

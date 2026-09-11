@@ -23,7 +23,7 @@ CLI
               |
               +-- SystemMessage + HumanMessage
               +-- model.bind_tools(tools)
-              +-- model.invoke(messages)
+              +-- model.stream(messages) / invoke(messages)
               +-- AIMessage.tool_calls
               +-- BaseTool.invoke(args)
               +-- ToolMessage
@@ -52,7 +52,7 @@ messages = [system, human]
 runnable = model.bind_tools(tools)
 
 for step in 1..max_steps:
-    ai = runnable.invoke(messages)
+    ai = stream_and_combine(runnable, messages)  # 或直接 invoke
     messages.append(ai)
 
     if ai.tool_calls is empty:

@@ -9,7 +9,7 @@ HumanMessage、SystemMessage、AIMessage、ToolMessage 以及 @tool 生成的
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool
@@ -52,8 +52,14 @@ class CodingAgent:
             system_prompt=build_system_prompt(context.workspace_root),
         )
 
-    def run(self, task: str, *, history: list[Any] | None = None) -> RunResult:
-        """运行一次任务；传入 history 时，继续之前的多轮对话。"""
+    def run(
+        self,
+        task: str,
+        *,
+        history: list[Any] | None = None,
+        on_text: Callable[[str], None] | None = None,
+    ) -> RunResult:
+        """运行一次任务；传入 history 时继续对话，传入 on_text 时流式回调文本。"""
 
         if not task.strip():
             raise ValueError("task must not be empty")
@@ -76,8 +82,15 @@ class CodingAgent:
             stats.steps = step
 
             try:
-                # 每一轮把完整消息轨迹交给模型，模型返回一个 AIMessage。
-                ai_message = model_with_tools.invoke(messages)
+                # CLI 传入 on_text 时使用 stream；否则保留简单的 invoke 路径。
+                if on_text is None:
+                    ai_message = model_with_tools.invoke(messages)
+                else:
+                    ai_message = _stream_response(
+                        model_with_tools,
+                        messages,
+                        on_text,
+                    )
             except Exception as exc:
                 return RunResult(
                     final_text="",
@@ -167,3 +180,27 @@ def _content_to_text(content: Any) -> str:
                 parts.append(str(block))
         return "".join(parts)
     return str(content)
+
+
+def _stream_response(
+    model_with_tools: Any,
+    messages: list[Any],
+    on_text: Callable[[str], None],
+) -> Any:
+    """Stream one model response, then combine chunks before inspecting tool calls."""
+
+    stream = getattr(model_with_tools, "stream", None)
+    if not callable(stream):
+        raise RuntimeError("The configured model does not support streaming.")
+
+    combined: Any | None = None
+    for chunk in stream(messages):
+        # 文本块立即交给 CLI；工具调用参数则只在聚合完成后执行。
+        text = _content_to_text(getattr(chunk, "content", ""))
+        if text:
+            on_text(text)
+        combined = chunk if combined is None else combined + chunk
+
+    if combined is None:
+        raise RuntimeError("Model stream returned no chunks.")
+    return combined
