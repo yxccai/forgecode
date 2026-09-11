@@ -58,7 +58,7 @@ Prompt 决定模型如何理解自己的角色和工具，但 Prompt 本身不�
 
 ### `model.py`：模型边界
 
-`ChatModel` 是 Agent 需要的最小能力；`OpenAIChatModel` 只是一个具体适配器。Fake Model 因此可以替代真实模型测试控制逻辑。
+`ChatModel` 是 Agent 需要的最小能力；`OpenAIChatModel` 只是一个具体适配器。单元测试通过确定性模型替身验证控制逻辑。
 
 ### `tools/`：环境能力
 

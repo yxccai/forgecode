@@ -42,7 +42,7 @@ V1 调用链见 [docs/architecture-v1.md](docs/architecture-v1.md)，版本学�
 - 工具错误反馈和输出截断
 - 最大步骤数限制
 - LangChain AIMessage / ToolMessage 消息轨迹
-- Fake Model 自动化测试
+- 单元测试中的隔离模型替身
 - OpenAI ChatOpenAI 适配器
 
 ## 初始化
@@ -53,12 +53,20 @@ python -m venv .venv
 python -m pip install -e ".[dev]"
 ~~~
 
-设置 API Key：
+设置 API 配置：
+
+ForgeCode 使用 LangChain ChatOpenAI，可以连接 OpenAI 或任何兼容 OpenAI Chat Completions 接口的第三方服务。推荐使用环境变量：
 
 ~~~powershell
-$env:OPENAI_API_KEY = "your-api-key"
-# 如果使用兼容 OpenAI 协议的服务，可设置：
-$env:OPENAI_BASE_URL = "https://your-provider.example/v1"
+$env:FORGECODE_API_KEY = "your-api-key"
+$env:FORGECODE_BASE_URL = "https://your-provider.example/v1"
+$env:FORGECODE_MODEL = "your-model-name"
+~~~
+
+也兼容 OPENAI_API_KEY、OPENAI_BASE_URL、OPENAI_API_BASE。命令行参数可以临时覆盖环境变量：
+
+~~~bash
+forge "解释认证流程" --api-key your-api-key --base-url https://your-provider.example/v1 --model your-model-name
 ~~~
 
 运行一个代码理解或修改任务：
@@ -68,18 +76,6 @@ forge "请先浏览仓库，然后说明项目的入口文件和主要模块" --
 forge "把 README 的标题改得更清晰，并运行相关检查" --max-steps 8
 ~~~
 
-不使用 API Key 也可以运行确定性的 V1 演示：
-
-~~~bash
-python examples/v1_fake_demo.py
-~~~
-
-V0 演示仍可运行：
-
-~~~bash
-python examples/v0_fake_demo.py
-~~~
-
 ## 测试
 
 ~~~bash
@@ -87,7 +83,7 @@ pytest -q
 ruff check src tests
 ~~~
 
-测试不依赖真实模型，使用 Scripted/Fake Model 验证 Agent Loop、工具错误、代码修改和 Git diff。
+单元测试会隔离模型调用，验证 Agent Loop、工具错误、代码修改和 Git diff；运行 CLI 时始终走真实 API。
 
 ## 推荐阅读顺序
 
@@ -96,7 +92,7 @@ ruff check src tests
 3. src/forgecode/tools/base.py：工作区边界与输出限制；
 4. src/forgecode/tools/langchain_tools.py：@tool 如何包装底层 handler；
 5. src/forgecode/agent.py：V1 显式循环；
-6. tests/test_coding_agent.py：用 Fake Model 回放完整循环；
+6. tests/test_coding_agent.py：验证消息循环、工具结果和停止条件；
 7. src/forgecode/model.py：真实 ChatOpenAI 工厂；
 8. docs/versions/v0.md 和 src/forgecode/agent_v0.py：回看 V0 的手写实现。
 

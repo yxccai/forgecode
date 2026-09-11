@@ -10,7 +10,7 @@ from forgecode.schemas import AgentConfig, StopReason
 
 
 class ScriptedModel:
-    """Fake LangChain model that returns a predetermined AIMessage sequence."""
+    """Deterministic LangChain test model that returns a fixed AIMessage sequence."""
 
     def __init__(self, responses: list[AIMessage]) -> None:
         self.responses = list(responses)

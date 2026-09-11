@@ -305,7 +305,7 @@ forgecode/
 
 ### 7.6 测试重点
 
-使用可脚本化的 Fake Model 测试 Agent Loop，避免所有测试都依赖真实 API：
+使用可脚本化的确定性模型替身测试 Agent Loop，避免所有测试都依赖真实 API：
 
 - 模型直接返回最终答案；
 - 模型调用一次工具后返回答案；
@@ -355,7 +355,7 @@ Demo 必须展示至少两次工具调用，并输出可读的执行轨迹。
 - Tool Result 应该以什么角色加入消息？
 - 如果工具失败，为什么不应该立即终止整个 Agent？
 - 如何防止 Agent 无限循环？
-- Fake Model 为什么能让 Agent Loop 更容易测试？
+- 确定性模型替身为什么能让 Agent Loop 更容易测试？
 
 ### 7.11 停止边界
 
@@ -987,7 +987,7 @@ forgecode/
 
 ### 测试
 
-- 核心控制逻辑优先使用 Fake Model；
+- 核心控制逻辑优先使用确定性模型替身；
 - Unit Test 覆盖确定性逻辑；
 - Integration Test 覆盖工具与仓库交互；
 - E2E Demo 可以调用真实模型，但不作为唯一测试；
@@ -1106,7 +1106,7 @@ Main Agent + Reviewer
 
 | 阶段 | 建议时间 | 主要产出 |
 | --- | --- | --- |
-| V0 | 1～2 周 | 手写 Loop、Fake Model 测试、理解 Demo |
+| V0 | 1～2 周 | 手写 Loop、确定性模型替身测试、理解 Demo |
 | V1 | 2 周 | Bug Fix Agent、LangChain、回归任务 |
 | V2 | 1～2 周 | LangGraph、Checkpoint、Resume Demo |
 | V3 | 2～3 周 | Repo Context、定位实验 |
@@ -1150,7 +1150,7 @@ V2 — Stateful Agent
 1. 记录 V1 的消息轨迹和状态字段；
 2. 设计可暂停、可恢复的状态模型；
 3. 用 LangGraph 重写探索、修改、测试节点；
-4. 为节点边界补充 Fake Model 回归测试；
+4. 为节点边界补充确定性模型替身回归测试；
 5. 增加中断后恢复的演示；
 6. 完成 V1/V2 的复杂度与可观测性对比；
 7. 完成 V2 学习总结和面试验收；

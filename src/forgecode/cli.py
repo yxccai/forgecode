@@ -26,6 +26,19 @@ def build_parser() -> argparse.ArgumentParser:
         default=os.environ.get("FORGECODE_MODEL", "gpt-4o-mini"),
         help="Model name (default: FORGECODE_MODEL or gpt-4o-mini)",
     )
+    parser.add_argument(
+        "--api-key",
+        default=None,
+        help="API key; prefer FORGECODE_API_KEY or OPENAI_API_KEY in the environment",
+    )
+    parser.add_argument(
+        "--base-url",
+        default=None,
+        help=(
+            "OpenAI-compatible endpoint; prefer FORGECODE_BASE_URL, "
+            "OPENAI_BASE_URL, or OPENAI_API_BASE"
+        ),
+    )
     parser.add_argument("--max-steps", type=int, default=12)
     parser.add_argument("--show-trace", action="store_true", help="Print messages and tool results")
     return parser
@@ -34,7 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        model = create_langchain_chat_model(model=args.model)
+        model = create_langchain_chat_model(
+            model=args.model,
+            api_key=args.api_key,
+            base_url=args.base_url,
+        )
         agent = CodingAgent.for_workspace(
             model=model,
             workspace_root=args.workspace,

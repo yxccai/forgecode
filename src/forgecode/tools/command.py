@@ -1,4 +1,4 @@
-"""A small, argv-based command tool for trusted local V0 demos."""
+"""A small, argv-based command tool for trusted local use."""
 
 from __future__ import annotations
 

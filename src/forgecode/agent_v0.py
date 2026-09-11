@@ -114,7 +114,7 @@ class AgentLoop:
 
 
 def _assistant_message(response: ModelResponse) -> Message:
-    """为 Fake Model 等没有提供原始消息的实现补一个 assistant message。"""
+    """为测试模型等没有提供原始消息的实现补一个 assistant message。"""
 
     message: Message = {"role": "assistant", "content": response.content}
     if response.tool_calls:
